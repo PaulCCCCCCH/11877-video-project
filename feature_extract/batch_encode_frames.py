@@ -9,7 +9,7 @@ def encode_video(video_frames):
 		batch_preprocessed = torch.stack(
 			[preprocess(frame) for frame in batch_frames]).to(device)
 		with torch.no_grad():
-			batch_features = ss.model.encode_image(batch_preprocessed)
+			batch_features = language_and_vision_model.encode_image(batch_preprocessed)
 			batch_features /= batch_features.norm(dim=-1, keepdim=True)
 		video_features = torch.cat((video_features, batch_features))
 	return video_features

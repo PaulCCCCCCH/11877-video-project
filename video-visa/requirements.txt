@@ -1,0 +1,4 @@
+skimage
+pip install scikit-image
+dominate
+conda install visdom dominate -c conda-forge

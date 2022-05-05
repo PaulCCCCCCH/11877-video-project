@@ -65,6 +65,15 @@ class BaseOptions():
                             help='if specified, print more debugging information')
         parser.add_argument('--suffix', default='', type=str,
                             help='customized suffix: opt.name = opt.name + suffix: e.g., {model}_{netG}_size{loadSize}')
+
+        # visa-mm dataset 
+        parser.add_argument('--category_subset', default=0, type=int,
+                            help='Which subset of categories do we use? 0 menas using all categories. Check for other settings in visamm_dataset.')
+        parser.add_argument('--use_audio', action='store_true',
+                            help='Do we include audio?')
+        parser.add_argument('--text_encoder', default='GPT', type=str,
+                            help='What text encoder do we use?')
+
         self.initialized = True
         return parser
 

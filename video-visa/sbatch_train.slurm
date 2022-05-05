@@ -10,4 +10,4 @@
 source /apps/local/conda_init.sh
 conda activate video-proj
 export OMP_NUM_THREADS=64
-bash ./scripts_smit/train.sh
+bash ./scripts_smit/train_visamm_gpt.sh

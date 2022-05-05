@@ -3,6 +3,7 @@ from options.train_options import TrainOptions
 from data import CreateDataLoader
 from models import create_model
 from util.visualizer import Visualizer
+from tqdm import tqdm
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()
@@ -21,7 +22,7 @@ if __name__ == '__main__':
         iter_data_time = time.time()
         epoch_iter = 0
 
-        for i, data in enumerate(dataset):
+        for i, data in tqdm(enumerate(dataset), total=len(dataset), desc="epoch progress"):
             iter_start_time = time.time()
             if total_steps % opt.print_freq == 0:
                 t_data = iter_start_time - iter_data_time

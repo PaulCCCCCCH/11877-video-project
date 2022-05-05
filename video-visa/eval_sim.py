@@ -2,17 +2,28 @@ from sklearn.manifold import TSNE
 import numpy as np
 from matplotlib import pyplot as plt
 from data.image_folder import make_dataset
+from data.visamm_dataset import make_mm_dataset
 import os
 import torch
 from torch import nn
 
 np.random.seed(42)
 
+
+IS_MM = False
+
 dataroot = '../pre-processing/subset_classes'
+# dataroot = '../pre-processing/mmdata'
 
 resultsroot= './saved_results/five-classes/bear/latent_code/bear_256x512/test_latest/images'
+# resultsroot= './results/debug/latent_code/debug/test_latest/images'
 
-paths = sorted(make_dataset(dataroot))
+
+if IS_MM:
+    paths = sorted(make_mm_dataset(dataroot, 1), key=lambda d: d["im_path"])
+    paths = [p["im_path"] for p in paths]
+else:
+    paths = sorted(make_dataset(dataroot))
 
 # embeddings_to_plot = 500
 
@@ -34,7 +45,9 @@ for idx, path in enumerate(paths):
     class_names.append(classname)
 print("classes loaded")
 
-for idx, fname in enumerate(os.listdir(resultsroot)):
+result_fnames = os.listdir(resultsroot)
+result_fnames.sort(key=lambda p: int(p.split("_")[0]))
+for idx, fname in enumerate(result_fnames):
     fpath = os.path.join(resultsroot, fname)
     embedding = np.load(fpath)
     image_embeddings.append(embedding)

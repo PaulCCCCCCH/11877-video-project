@@ -1,0 +1,3 @@
+set -ex
+# python test.py --dataroot ../pre-processing/mmdata --checkpoints_dir checkpoints/ --name debug --num_test 25000000 --model visamm  --dataset_mode visamm --norm batch --latent_code_only True --gpu 0 --ngf 64 --loadSize_h 256 --loadSize_w 256 --results_dir results/debug/latent_code/ --eval
+python test.py --dataroot ../pre-processing/mmdata --checkpoints_dir checkpoints/ --name visamm-gpt-five --num_test 25000000 --model visamm --dataset_mode visamm --norm batch --latent_code_only True --gpu 0 --ngf 64 --loadSize_h 256 --loadSize_w 256 --results_dir results/debug/latent_code/ --eval

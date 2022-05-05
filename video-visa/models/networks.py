@@ -8,6 +8,7 @@ from torch.optim import lr_scheduler
 import skimage.io
 from skimage.transform import resize
 import numpy as np
+from transformers import BertModel, BertConfig, GPT2Model, GPT2Config
 
 ###############################################################################
 # Helper Functions
@@ -124,11 +125,15 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
     return net
 
 
-def define_G(input_nc, output_nc, ngf, netG, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[]):
+def define_G(input_nc, output_nc, ngf, netG, norm='batch', init_type='normal', init_gain=0.02, gpu_ids=[], use_audio=False, text_encoder="GPT"):
     net = None
     norm_layer = get_norm_layer(norm_type=norm)
     if netG == 'AutoEncoder':
+        print("Initializing autoencoder")
         net = AutoEncoder(input_nc, output_nc, ngf, norm_layer=norm_layer)
+    elif netG == 'AutoEncoderMM':
+        print("Initializing multi-modal autoencoder")
+        net = AutoEncoderMM(input_nc, output_nc, ngf, norm_layer=norm_layer, use_audio=use_audio, text_encoder=text_encoder)
     else:
         raise NotImplementedError(
             'Generator model name [%s] is not recognized' % netG)
@@ -232,6 +237,212 @@ class AutoEncoder(nn.Module):
 
         if cond == 3:
             f01 = self.model01(x)
+            f02 = self.model02(f01)
+            f03 = self.model03(f02)
+            f04 = self.model04(f03)
+            return f01, f02, f03, f04
+
+
+
+class AutoEncoderMM(nn.Module):
+    def __init__(self, input_nc, output_nc, ngf=32, norm_layer=nn.BatchNorm2d, use_audio=False, text_encoder='GPT'):
+        super(AutoEncoderMM, self).__init__()
+        self.input_nc = input_nc
+        self.output_nc = output_nc
+        self.ngf = ngf
+        self.use_audio = use_audio
+        self.text_encoder=text_encoder
+
+        self.filters = []
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+        # ---
+        model01 = [nn.Conv2d(3, ngf*4, kernel_size=5, padding=2, stride=2,
+                             bias=use_bias),
+                   norm_layer(ngf*4),
+                   nn.ReLU(0.2)]
+        model02 = [nn.Conv2d(ngf*4, ngf*8, kernel_size=5,
+                             stride=2, padding=2, bias=use_bias),
+                   norm_layer(ngf*8),
+                   nn.ReLU(0.2)]
+        model03 = [nn.Conv2d(ngf*8, ngf*12, kernel_size=5,
+                             stride=2, padding=2, bias=use_bias),
+                   norm_layer(ngf*12),
+                   nn.ReLU(0.2)]
+        model03 += [nn.Conv2d(ngf*12, ngf*16, kernel_size=5,
+                              stride=2, padding=2, bias=use_bias),
+                    norm_layer(ngf*16),
+                    nn.ReLU(0.2)]
+        model04 = [nn.Conv2d(ngf*16, ngf*16, kernel_size=3,
+                             stride=1, padding=1, bias=use_bias),
+                   norm_layer(ngf*16),
+                   nn.ReLU(0.2),
+                   nn.MaxPool2d(2, stride=2),
+                   norm_layer(ngf*16),
+                   nn.ReLU(0.2)]
+        model04 += [nn.Conv2d(ngf*16, ngf*12, kernel_size=3,
+                              stride=1, padding=1, bias=use_bias),
+                    norm_layer(ngf*12),
+                    nn.ReLU(0.2),
+                    nn.MaxPool2d(2, stride=2),
+                    norm_layer(ngf*12),
+                    nn.ReLU(0.2)]
+        # Up to here, latent code has dimension (N, ngf*12 (768), H/64 (4), W/64 (4))
+        # Further compress it to (64, 4, 4) with 1*1 kernels and flatten.
+        model05 = [nn.Conv2d(ngf*12, ngf*8, kernel_size=1,
+                              stride=1, padding=0, bias=use_bias),
+                    norm_layer(ngf*8),
+                    nn.ReLU(0.2)]
+
+        model05 += [nn.Conv2d(ngf*8, ngf*4, kernel_size=1,
+                              stride=1, padding=0, bias=use_bias),
+                    norm_layer(ngf*4),
+                    nn.ReLU(0.2)]
+
+        model05 += [nn.Conv2d(ngf*4, ngf, kernel_size=1,
+                              stride=1, padding=0, bias=use_bias),
+                    norm_layer(ngf),
+                    nn.ReLU(0.2)]
+
+        model1 = [nn.ConvTranspose2d(ngf, ngf*4, kernel_size=4,
+                                     stride=2, padding=1, bias=use_bias),
+                  norm_layer(ngf*4),
+                  nn.ReLU(True)]
+
+
+        model1 += [nn.ConvTranspose2d(ngf*4, ngf*8, kernel_size=4,
+                                     stride=2, padding=1, bias=use_bias),
+                  norm_layer(ngf*8),
+                  nn.ReLU(True)]
+
+        model1 += [nn.ConvTranspose2d(ngf*8, ngf*12, kernel_size=4,
+                                     stride=2, padding=1, bias=use_bias),
+                  norm_layer(ngf*12),
+                  nn.ReLU(True)]
+        
+
+        model2 = [nn.ConvTranspose2d(ngf*12, ngf*12, kernel_size=4,
+                                     stride=2, padding=1, bias=use_bias),
+                  norm_layer(ngf*12),
+                  nn.ReLU(True)]
+        model2 += [nn.ConvTranspose2d(ngf*12, ngf*8, kernel_size=4,
+                                      stride=2, padding=1, bias=use_bias),
+                   norm_layer(ngf*8),
+                   nn.ReLU(True)]
+        model2 += [nn.ConvTranspose2d(ngf*8, ngf*4, kernel_size=4,
+                                      stride=2, padding=1, bias=use_bias),
+                   norm_layer(ngf*4),
+                   nn.ReLU(True)]
+        model2 += [nn.ConvTranspose2d(ngf*4, ngf, kernel_size=4,
+                                      stride=2, padding=1, bias=use_bias),
+                   norm_layer(ngf),
+                   nn.ReLU(True)]
+        model2 += [nn.Conv2d(ngf, 3, kernel_size=4,
+                             stride=2, padding=1, bias=use_bias),
+                   nn.Tanh()]
+
+        # Image encoders
+        self.model01 = nn.Sequential(*model01)
+        self.model02 = nn.Sequential(*model02)
+        self.model03 = nn.Sequential(*model03)
+        self.model04 = nn.Sequential(*model04)
+        self.model05 = nn.Sequential(*model05)
+
+        # Flatten final CNN feature map to vector
+        self.flatten = nn.Flatten()
+
+        # Text encoder
+        if self.text_encoder.lower() == 'bert':
+            self.textEncoder = BertModel(BertConfig()).from_pretrained('bert-base-uncased')
+        elif self.text_encoder.lower() == 'gpt':
+            self.textEncoder = GPT2Model(GPT2Config()).from_pretrained('gpt2')
+        else:
+            raise NotImplemented
+        
+        for p in self.textEncoder.parameters():
+            p.requires_grad = False
+
+        # TODO: Try using a more sophisticated fusion module here?
+        IMG_OUT_DIM = ngf * 4 * 4 # 64 * 4 * 4 = 1024
+        BERT_OUT_DIM = 768
+        if self.use_audio:
+            AUDIO_EMB_DIM = 512
+        else:
+            AUDIO_EMB_DIM = 0
+            
+        input_dim = IMG_OUT_DIM + AUDIO_EMB_DIM + BERT_OUT_DIM # 1024 + 768 + 512 = 2304
+        self.fusionLayer = nn.Sequential(
+            nn.Linear(input_dim, 1024), 
+            nn.BatchNorm1d(1024), 
+            nn.ReLU(True),
+            # nn.Linear(1024, 768), 
+            # nn.BatchNorm1d(768), 
+            # nn.ReLU(True),
+        )
+
+        # Decoder1, expect to take in (N, 64, 4, 4) = (N, 1024) feature map
+        self.model1 = nn.Sequential(*model1)
+        # Decoder2, expect to take in (N, 64 * 12, 4, 4) = (N, 12288) feature map
+        self.model2 = nn.Sequential(*model2)
+
+
+    def forward(self, img, transc=None, audio=None, cond=2):
+        if cond == 0:   # x is input image, return reconstructed image
+                        # used during training
+            img_enc = self.flatten(self.model05(self.model04(self.model03(self.model02(self.model01(img))))))
+
+            if self.text_encoder.lower() == 'bert':
+                # Bert outputs (last_hidden_state (N, seqlen, hidden), CLS (N, hidden))
+                transc_enc = self.textEncoder(**transc)[1]
+            elif self.text_encoder.lower() == 'gpt':
+                # GPT outputs (last_hidden_state (N, seqlen, hidden),  ...)
+                # How you would use GPT for classification. Reference: https://github.com/huggingface/transformers/issues/3168
+                tokens = self.textEncoder(**transc)[0]
+                transc_enc = torch.mean(tokens, dim=1)
+            else:
+                raise NotImplemented
+
+            if self.use_audio:
+                audio_enc = audio.squeeze(1)
+                mm_enc = self.fusionLayer(torch.cat([img_enc, transc_enc, audio_enc], dim=1)) # 2304 -> 1024 -> 768
+            else:
+                mm_enc = self.fusionLayer(torch.cat([img_enc, transc_enc], dim=1)) # 2304 -> 1024 -> 768
+
+            enc = mm_enc.reshape(mm_enc.shape[0], self.ngf, 4, 4) 
+            dec = self.model2(self.model1(enc))
+            return dec
+
+        if cond == 1:   # x is input image, return latent representation
+            img_enc = self.flatten(self.model05(self.model04(self.model03(self.model02(self.model01(img))))))
+
+            # Bert outputs (last_hidden_state (N, seqlen, hidden), CLS (N, hidden))
+            if self.text_encoder.lower() == 'bert':
+                # Bert outputs (last_hidden_state (N, seqlen, hidden), CLS (N, hidden))
+                transc_enc = self.textEncoder(**transc)[1]
+            elif self.text_encoder.lower() == 'gpt':
+                # GPT outputs (last_hidden_state (N, seqlen, hidden),  ...)
+                # How you would use GPT for classification. Reference: https://github.com/huggingface/transformers/issues/3168
+                tokens = self.textEncoder(**transc)[0]
+                transc_enc = torch.mean(tokens, dim=1)
+            else:
+                raise NotImplemented
+
+            if self.use_audio:
+                audio_enc = audio.squeeze(1)
+                mm_enc = self.fusionLayer(torch.cat([img_enc, transc_enc, audio_enc], dim=1)) # 2304 -> 1024 -> 768
+            else:
+                mm_enc = self.fusionLayer(torch.cat([img_enc, transc_enc], dim=1)) # 2304 -> 1024 -> 768
+            enc = mm_enc.reshape(mm_enc.shape[0], self.ngf, 4, 4) 
+            return enc
+
+        if cond == 2: # x is latent representation, return reconstructed image
+            dec = self.model2(img)
+            return dec
+
+        if cond == 3: # return latent representation of each stage
+            f01 = self.model01(img)
             f02 = self.model02(f01)
             f03 = self.model03(f02)
             f04 = self.model04(f03)

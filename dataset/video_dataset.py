@@ -1,5 +1,8 @@
 from PIL import Image
 import os
+import torchvision as vis
+import torch
+from .triplet_dataset import tokenize
 
 class VideoFramesDataset(vis.datasets.VisionDataset):
   def __init__(self, root, transcript_base, transforms):
@@ -40,11 +43,11 @@ class VideoFramesDataset(vis.datasets.VisionDataset):
     with open(f"{self.transcript_base}/{video_path_base[:-4]}.txt") as file:
       text = file.readline().strip()
     
-    return torch.stack(images, dim=1), len(images), clip.tokenize(text[:77]) # clip context length defaults to 77
+    return torch.stack(images, dim=1), len(images), text
 
   def collate_fn(batch):
     frames, lengths, texts = list(zip(*batch))
-    return torch.cat(frames), lengths, texts
+    return torch.stack(frames), lengths, tokenize(texts)
   
 import pandas as pd
 
@@ -78,8 +81,8 @@ class VideoFramesDatasetWithSplit(vis.datasets.VisionDataset):
     with open(f"{self.transcript_base}/{video_path_base}.txt") as file:
       text = file.readline().strip()
     
-    return torch.stack(images, dim=1), len(images), clip.tokenize(text[:77]) # clip context length defaults to 77
+    return torch.stack(images, dim=1), len(images), text
 
   def collate_fn(batch):
     frames, lengths, texts = list(zip(*batch))
-    return torch.cat(frames), lengths, texts
+    return torch.stack(frames), lengths, tokenize(texts)
